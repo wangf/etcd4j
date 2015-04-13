@@ -5,9 +5,11 @@ import mousio.etcd4j.promises.EtcdResponsePromise;
 import mousio.etcd4j.responses.EtcdException;
 import mousio.etcd4j.responses.EtcdKeyAction;
 import mousio.etcd4j.responses.EtcdKeysResponse;
+
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import org.junit.experimental.categories.Categories.ExcludeCategory;
 
 import java.io.IOException;
 import java.util.Timer;
@@ -42,14 +44,10 @@ public class TestFunctionality {
     assertTrue(etcd.getVersion().startsWith("etcd "));
   }
 
-  @Test
-  public void testTimeout() throws IOException, EtcdException {
-    try {
+  @Test(expected=TimeoutException.class)
+  public void testTimeout() throws IOException, EtcdException, TimeoutException {
       etcd.put("etcd4j_test/fooTO", "bar").timeout(1, TimeUnit.MILLISECONDS).send().get();
-      fail();
-    } catch (TimeoutException e) {
-      // Should time out
-    }
+      fail("Should not get here");
   }
 
   /**
