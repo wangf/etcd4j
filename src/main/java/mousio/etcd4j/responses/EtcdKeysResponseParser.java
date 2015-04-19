@@ -71,29 +71,34 @@ public class EtcdKeysResponseParser {
     EtcdException exception = new EtcdException();
 
     JsonToken token = parser.getCurrentToken();
-    while (token != JsonToken.END_OBJECT && token != null) {
-      switch (parser.getCurrentName()) {
-        case CAUSE:
-          exception.etcdCause = parser.nextTextValue();
-          break;
-        case MESSAGE:
-          exception.etcdMessage = parser.nextTextValue();
-          break;
-        case ERRORCODE:
-          exception.errorCode = parser.nextIntValue(0);
-          break;
-        case INDEX:
-          exception.index = parser.nextIntValue(0);
-          break;
-        default:
-          throw new JsonParseException("Unknown field in exception " + parser.getCurrentName(), parser.getCurrentLocation());
-      }
+		while (token != JsonToken.END_OBJECT && token != null) {
+			switch (EtcdExceptionType.valueOf(parser.getCurrentName())) {
+				case CAUSE:
+					exception.etcdCause = parser.nextTextValue();
+					break;
+				case MESSAGE:
+					exception.etcdMessage = parser.nextTextValue();
+					break;
+				case ERRORCODE:
+					exception.errorCode = parser.nextIntValue(0);
+					break;
+				case INDEX:
+					exception.index = parser.nextIntValue(0);
+					break;
+				default:
+					throw new JsonParseException("Unknown field in exception " + parser.getCurrentName(),
+							parser.getCurrentLocation());
+			}
 
-      token = parser.nextToken();
-    }
+			token = parser.nextToken();
+		}
 
     return exception;
   }
+static enum EtcdExceptionType{
+	CAUSE,MESSAGE,ERRORCODE,INDEX;
+}
+
 
   /**
    * Parses response
@@ -146,7 +151,7 @@ public class EtcdKeysResponseParser {
     EtcdKeysResponse.EtcdNode node = new EtcdKeysResponse.EtcdNode();
 
     while (token != JsonToken.END_OBJECT && token != null) {
-      switch (parser.getCurrentName()) {
+      switch (EtcdKeysResponseType.valueOf(parser.getCurrentName())) {
         case KEY:
           node.key = parser.nextTextValue();
           break;
@@ -171,17 +176,17 @@ public class EtcdKeysResponseParser {
         case NODES:
           parser.nextToken();
           node.nodes = parseNodes(parser);
-          break;
-        default:
-          throw new JsonParseException("Unknown field " + parser.getCurrentName(), parser.getCurrentLocation());
+    	default:
+    	  throw new JsonParseException("Unknown field " + parser.getCurrentName(), parser.getCurrentLocation());
       }
-
       token = parser.nextToken();
     }
 
     return node;
   }
-
+static enum EtcdKeysResponseType{
+	KEY,CREATEDINDEX,MODIFIEDINDEX,VALUE,DIR,EXPIRATION,TTL,NODES
+}
   /**
    * Converts an ISO8601 date to Java date
    *
@@ -204,7 +209,7 @@ public class EtcdKeysResponseParser {
     if (parser.getCurrentToken() != JsonToken.START_ARRAY) {
       throw new JsonParseException("Expecting an array of nodes", parser.getCurrentLocation());
     }
-    List<EtcdKeysResponse.EtcdNode> nodes = new ArrayList<>();
+    List<EtcdKeysResponse.EtcdNode> nodes = new ArrayList<EtcdKeysResponse.EtcdNode>();
 
     JsonToken token = parser.nextToken();
     while (token != JsonToken.END_ARRAY && token != null) {

@@ -49,7 +49,7 @@ public class EtcdClient implements Closeable {
   public String getVersion() {
     try {
       return new EtcdVersionRequest(this.client, retryHandler).send().get();
-    } catch (IOException | EtcdException | TimeoutException e) {
+    } catch (Exception e) {
       return null;
     }
   }

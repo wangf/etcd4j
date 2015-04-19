@@ -88,7 +88,7 @@ public class EtcdNettyClient implements EtcdClientImpl {
     connectionState.uriIndex = lastWorkingUriIndex;
 
     if (etcdRequest.getPromise() == null) {
-      EtcdResponsePromise<R> responsePromise = new EtcdResponsePromise<>(etcdRequest.getRetryPolicy(), connectionState, new RetryHandler() {
+      EtcdResponsePromise<R> responsePromise = new EtcdResponsePromise<R>(etcdRequest.getRetryPolicy(), connectionState, new RetryHandler() {
         @Override public void doRetry() throws IOException {
           connect(etcdRequest, connectionState);
         }
@@ -140,7 +140,7 @@ public class EtcdNettyClient implements EtcdClientImpl {
     final Channel channel = connectFuture.channel();
 
     etcdRequest.getPromise().attachNettyPromise(
-        (Promise<R>) new DefaultPromise<>(connectFuture.channel().eventLoop())
+        (Promise<R>) new DefaultPromise<R>(connectFuture.channel().eventLoop())
     );
 
     connectFuture.addListener(new GenericFutureListener<ChannelFuture>() {

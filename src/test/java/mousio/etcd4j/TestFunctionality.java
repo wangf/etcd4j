@@ -171,11 +171,15 @@ public class TestFunctionality {
     // Ensure the change is received after the listen command is received.
     new Timer().schedule(new TimerTask() {
       @Override public void run() {
-        try {
-          etcd.put("etcd4j_test/test", "changed").send().get();
-        } catch (IOException | EtcdException | TimeoutException e) {
-          fail();
-        }
+          try {
+			etcd.put("etcd4j_test/test", "changed").send().get();
+		} catch (IOException e) {
+			fail();
+		} catch (EtcdException e) {
+			fail();
+		} catch (TimeoutException e) {
+			fail();
+		}
       }
     }, 20);
 
@@ -187,8 +191,10 @@ public class TestFunctionality {
   public void tearDown() throws Exception {
     try {
       etcd.deleteDir("etcd4j_test").recursive().send().get();
-    } catch (EtcdException | IOException e) {
+    } catch (EtcdException e) {
       // ignore since not all tests create the directory
+    } catch(IOException e){
+    	
     }
     this.etcd.close();
   }
