@@ -3,12 +3,11 @@ package mousio.etcd4j.transport;
 import io.netty.bootstrap.Bootstrap;
 import io.netty.buffer.PooledByteBufAllocator;
 import io.netty.channel.*;
-import io.netty.channel.nio.NioEventLoopGroup;
 import io.netty.channel.socket.SocketChannel;
-import io.netty.channel.socket.nio.NioSocketChannel;
 import io.netty.handler.codec.http.*;
 import io.netty.handler.codec.http.multipart.HttpPostRequestEncoder;
 import io.netty.handler.ssl.SslContext;
+import io.netty.handler.stream.ChunkedWriteHandler;
 import io.netty.handler.timeout.ReadTimeoutHandler;
 import io.netty.util.concurrent.DefaultPromise;
 import io.netty.util.concurrent.Future;
@@ -37,10 +36,11 @@ import java.util.concurrent.CancellationException;
 public class EtcdNettyClient implements EtcdClientImpl {
   private static final Logger logger = LoggerFactory.getLogger(EtcdNettyClient.class);
 
-  private final Bootstrap bootstrap;
-  private final NioEventLoopGroup eventLoopGroup;
-
+  private final EventLoopGroup eventLoopGroup;
   private final URI[] uris;
+
+  private final Bootstrap bootstrap;
+
   protected int lastWorkingUriIndex = 0;
 
   /**
@@ -50,19 +50,28 @@ public class EtcdNettyClient implements EtcdClientImpl {
    * @param uri        to connect to
    */
   public EtcdNettyClient(final SslContext sslContext, final URI... uri) {
+    this(new EtcdNettyConfig(), sslContext, uri);
+  }
+
+  /**
+   * Constructor with custom eventloopgroup and timeout
+   *
+   * @param config     for netty
+   * @param sslContext SSL context if connecting with SSL. Null if not connecting with SSL.
+   * @param uris       to connect to
+   */
+  public EtcdNettyClient(final EtcdNettyConfig config,
+                         final SslContext sslContext, final URI... uris) {
     logger.info("Setting up Etcd4j Netty client");
 
-    this.eventLoopGroup = new NioEventLoopGroup();
-
-    this.uris = uri;
-
-    // Configure the client.
-    this.bootstrap = new Bootstrap();
-    bootstrap.group(eventLoopGroup)
-        .channel(NioSocketChannel.class)
+    this.uris = uris;
+    this.eventLoopGroup = config.getEventLoopGroup();
+    this.bootstrap = new Bootstrap()
+        .group(eventLoopGroup)
+        .channel(config.getSocketChannelClass())
         .option(ChannelOption.ALLOCATOR, PooledByteBufAllocator.DEFAULT)
         .option(ChannelOption.TCP_NODELAY, true)
-        .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 300)
+        .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, config.getConnectTimeout())
         .handler(new ChannelInitializer<SocketChannel>() {
           @Override
           public void initChannel(SocketChannel ch) throws Exception {
@@ -71,10 +80,19 @@ public class EtcdNettyClient implements EtcdClientImpl {
               p.addLast(sslContext.newHandler(ch.alloc()));
             }
             p.addLast("codec", new HttpClientCodec());
-            int maxFrameSize = Integer.parseInt(System.getProperty("mousio.etcd4j.maxFrameSize", Integer.toString(1024 * 100)));
-            p.addLast("aggregate", new HttpObjectAggregator(maxFrameSize));
+            p.addLast("chunkedWriter", new ChunkedWriteHandler());
+            p.addLast("aggregate", new HttpObjectAggregator(config.getMaxFrameSize()));
           }
         });
+  }
+
+  /**
+   * For tests
+   *
+   * @return the current bootstrap
+   */
+  protected Bootstrap getBootstrap() {
+    return bootstrap;
   }
 
   /**
@@ -89,7 +107,8 @@ public class EtcdNettyClient implements EtcdClientImpl {
 
     if (etcdRequest.getPromise() == null) {
       EtcdResponsePromise<R> responsePromise = new EtcdResponsePromise<>(etcdRequest.getRetryPolicy(), connectionState, new RetryHandler() {
-        @Override public void doRetry() throws IOException {
+        @Override
+        public void doRetry() throws IOException {
           connect(etcdRequest, connectionState);
         }
       });
@@ -123,33 +142,29 @@ public class EtcdNettyClient implements EtcdClientImpl {
    * @throws IOException if request could not be sent.
    */
   @SuppressWarnings("unchecked")
-  protected <R> void connect(final EtcdRequest<R> etcdRequest, final ConnectionState connectionState)
-      throws IOException {
+  protected <R> void connect(final EtcdRequest<R> etcdRequest, final ConnectionState connectionState) throws IOException {
     URI uri = uris[connectionState.uriIndex];
 
-    // when we are called from a redirect, the url in the request may also contain host and port!
+    // when we are called from a redirect, the url in the request may also
+    // contain host and port!
     URI requestUri = URI.create(etcdRequest.getUrl());
     if (requestUri.getHost() != null && requestUri.getPort() > -1) {
       uri = requestUri;
     }
 
     // Start the connection attempt.
-    final ChannelFuture connectFuture = bootstrap.clone()
-        .connect(uri.getHost(), uri.getPort());
+    final ChannelFuture connectFuture = bootstrap.clone().connect(uri.getHost(), uri.getPort());
 
     final Channel channel = connectFuture.channel();
 
-    etcdRequest.getPromise().attachNettyPromise(
-        (Promise<R>) new DefaultPromise<>(connectFuture.channel().eventLoop())
-    );
+    etcdRequest.getPromise().attachNettyPromise((Promise<R>) new DefaultPromise<>(connectFuture.channel().eventLoop()));
 
     connectFuture.addListener(new GenericFutureListener<ChannelFuture>() {
       @Override
       public void operationComplete(final ChannelFuture f) throws Exception {
         if (!f.isSuccess()) {
           if (logger.isDebugEnabled()) {
-            logger.debug(String
-                .format("Connection failed to " + connectionState.uris[connectionState.uriIndex]));
+            logger.debug("Connection failed to " + connectionState.uris[connectionState.uriIndex]);
           }
           etcdRequest.getPromise().handleRetry(f.cause());
           return;
@@ -166,7 +181,8 @@ public class EtcdNettyClient implements EtcdClientImpl {
 
         // Close channel when promise is satisfied or cancelled later
         listenedToPromise.addListener(new GenericFutureListener<Future<?>>() {
-          @Override public void operationComplete(Future<?> future) throws Exception {
+          @Override
+          public void operationComplete(Future<?> future) throws Exception {
             // Only close if it was not redirected to new promise
             if (etcdRequest.getPromise().getNettyPromise() == listenedToPromise) {
               f.channel().close();
@@ -182,10 +198,7 @@ public class EtcdNettyClient implements EtcdClientImpl {
 
         modifyPipeLine(etcdRequest, f.channel().pipeline());
 
-        HttpRequest httpRequest = createHttpRequest(etcdRequest.getUrl(), etcdRequest);
-
-        // send request
-        channel.writeAndFlush(httpRequest).addListener(new ChannelFutureListener() {
+        createAndSendHttpRequest(etcdRequest.getUrl(), etcdRequest, channel).addListener(new ChannelFutureListener() {
           @Override
           public void operationComplete(ChannelFuture future) throws Exception {
             if (!future.isSuccess()) {
@@ -196,10 +209,10 @@ public class EtcdNettyClient implements EtcdClientImpl {
         });
 
         channel.closeFuture().addListener(new ChannelFutureListener() {
-          @Override public void operationComplete(ChannelFuture future) throws Exception {
+          @Override
+          public void operationComplete(ChannelFuture future) throws Exception {
             if (logger.isDebugEnabled()) {
-              logger.debug("Connection closed for request " + etcdRequest.getMethod().name() + " "
-                  + etcdRequest.getUri());
+              logger.debug("Connection closed for request " + etcdRequest.getMethod().name() + " " + etcdRequest.getUri());
             }
           }
         });
@@ -228,9 +241,7 @@ public class EtcdNettyClient implements EtcdClientImpl {
       handler = new AbstractEtcdResponseHandler<EtcdVersionRequest, FullHttpResponse>(this, (EtcdVersionRequest) req) {
         @Override
         protected void channelRead0(ChannelHandlerContext ctx, FullHttpResponse msg) throws Exception {
-          (((EtcdVersionRequest) req).getPromise()).getNettyPromise()
-              .setSuccess(
-                  msg.content().toString(Charset.defaultCharset()));
+          (((EtcdVersionRequest) req).getPromise()).getNettyPromise().setSuccess(msg.content().toString(Charset.defaultCharset()));
         }
       };
     } else {
@@ -253,44 +264,27 @@ public class EtcdNettyClient implements EtcdClientImpl {
    *
    * @param uri         to send request to
    * @param etcdRequest to send
+   * @param channel     to send request on
    * @param <R>         Response type
    * @return HttpRequest
-   * @throws IOException if request could not be created
+   * @throws Exception when creating or sending HTTP request fails
    */
-  public static <R> HttpRequest createHttpRequest(String uri, EtcdRequest<R> etcdRequest) throws IOException {
+  private <R> ChannelFuture createAndSendHttpRequest(String uri, EtcdRequest<R> etcdRequest, Channel channel) throws Exception {
     HttpRequest httpRequest = new DefaultHttpRequest(HttpVersion.HTTP_1_1, etcdRequest.getMethod(), uri);
     httpRequest.headers().add("Connection", "keep-alive");
     httpRequest.headers().add("Host", InetAddress.getLocalHost().getHostName());
-    try {
-      httpRequest = setRequestParameters(uri, etcdRequest, httpRequest);
-    } catch (Exception e) {
-      throw new IOException(e);
-    }
-    return httpRequest;
-  }
 
-  /**
-   * Set parameters on request
-   *
-   * @param uri         to connect to
-   * @param etcdRequest to send
-   * @param httpRequest to send
-   * @return Http Request
-   * @throws Exception on fail
-   */
-  private static HttpRequest setRequestParameters(String uri, EtcdRequest<?> etcdRequest, HttpRequest httpRequest) throws Exception {
-    // Set possible key value pairs
+    HttpPostRequestEncoder bodyRequestEncoder = null;
     Map<String, String> keyValuePairs = etcdRequest.getRequestParams();
     if (keyValuePairs != null && !keyValuePairs.isEmpty()) {
       HttpMethod etcdRequestMethod = etcdRequest.getMethod();
       if (etcdRequestMethod == HttpMethod.POST || etcdRequestMethod == HttpMethod.PUT) {
-        HttpPostRequestEncoder bodyRequestEncoder = new HttpPostRequestEncoder(httpRequest, false);
+        bodyRequestEncoder = new HttpPostRequestEncoder(httpRequest, false);
         for (Map.Entry<String, String> entry : keyValuePairs.entrySet()) {
           bodyRequestEncoder.addBodyAttribute(entry.getKey(), entry.getValue());
         }
 
         httpRequest = bodyRequestEncoder.finalizeRequest();
-        bodyRequestEncoder.close();
       } else {
         String getLocation = "";
         for (Map.Entry<String, String> entry : keyValuePairs.entrySet()) {
@@ -308,7 +302,12 @@ public class EtcdNettyClient implements EtcdClientImpl {
       }
     }
     etcdRequest.setHttpRequest(httpRequest);
-    return httpRequest;
+    ChannelFuture future = channel.write(httpRequest);
+    if (bodyRequestEncoder != null && bodyRequestEncoder.isChunked()) {
+      future = channel.write(bodyRequestEncoder);
+    }
+    channel.flush();
+    return future;
   }
 
   /**

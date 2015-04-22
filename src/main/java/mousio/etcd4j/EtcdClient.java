@@ -5,6 +5,7 @@ import mousio.client.retry.RetryPolicy;
 import mousio.client.retry.RetryWithExponentialBackOff;
 import mousio.etcd4j.requests.*;
 import mousio.etcd4j.responses.EtcdException;
+import mousio.etcd4j.transport.EtcdClientImpl;
 import mousio.etcd4j.transport.EtcdNettyClient;
 
 import java.io.Closeable;
@@ -16,7 +17,7 @@ import java.util.concurrent.TimeoutException;
  * Etcd client.
  */
 public class EtcdClient implements Closeable {
-  private final EtcdNettyClient client;
+  private final EtcdClientImpl client;
   private RetryPolicy retryHandler = new RetryWithExponentialBackOff(20, -1, 10000);
 
   /**
@@ -32,13 +33,22 @@ public class EtcdClient implements Closeable {
    * Constructor
    *
    * @param sslContext context for Ssl connections
-   * @param baseUri    URI to create connection on
+   * @param baseUri URI to create connection on
    */
   public EtcdClient(SslContext sslContext, URI... baseUri) {
     if (baseUri.length == 0) {
-      baseUri = new URI[]{URI.create("https://127.0.0.1:4001")};
+      baseUri = new URI[] { URI.create("https://127.0.0.1:4001") };
     }
     this.client = new EtcdNettyClient(sslContext, baseUri);
+  }
+
+  /**
+   * Create a client with a custom implementation
+   *
+   * @param etcdClientImpl to create client with.
+   */
+  public EtcdClient(EtcdClientImpl etcdClientImpl) {
+    this.client = etcdClientImpl;
   }
 
   /**
@@ -54,11 +64,10 @@ public class EtcdClient implements Closeable {
     }
   }
 
-
   /**
    * Put a key with a value
    *
-   * @param key   to put
+   * @param key to put
    * @param value to put on key
    * @return EtcdKeysRequest
    */
@@ -79,7 +88,7 @@ public class EtcdClient implements Closeable {
   /**
    * Post a value to a key for in-order keys.
    *
-   * @param key   to post to
+   * @param key to post to
    * @param value to post
    * @return EtcdKeysRequest
    */
@@ -136,15 +145,15 @@ public class EtcdClient implements Closeable {
     return new EtcdKeyGetRequest(client, retryHandler);
   }
 
-  @Override public void close() throws IOException {
+  @Override
+  public void close() throws IOException {
     if (client != null) {
       client.close();
     }
   }
 
   /**
-   * Set the retry handler.
-   * Default is an exponential backoff with start of 20ms.
+   * Set the retry handler. Default is an exponential backoff with start of 20ms.
    *
    * @param retryHandler to set
    */
