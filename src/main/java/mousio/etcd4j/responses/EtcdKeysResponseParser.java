@@ -23,19 +23,6 @@ public class EtcdKeysResponseParser {
   private static final String NODE = "node";
   private static final String PREVNODE = "prevNode";
 
-  private static final String KEY = "key";
-  private static final String DIR = "dir";
-  private static final String CREATEDINDEX = "createdIndex";
-  private static final String MODIFIEDINDEX = "modifiedIndex";
-  private static final String VALUE = "value";
-  private static final String EXPIRATION = "expiration";
-  private static final String TTL = "ttl";
-  private static final String NODES = "nodes";
-
-  private static final String CAUSE = "cause";
-  private static final String ERRORCODE = "errorCode";
-  private static final String MESSAGE = "message";
-  private static final String INDEX = "index";
 
   /**
    * Parses the Json content of the Etcd Response
@@ -73,16 +60,16 @@ public class EtcdKeysResponseParser {
     JsonToken token = parser.getCurrentToken();
 		while (token != JsonToken.END_OBJECT && token != null) {
 			switch (EtcdExceptionType.valueOf(parser.getCurrentName())) {
-				case CAUSE:
+				case cause:
 					exception.etcdCause = parser.nextTextValue();
 					break;
-				case MESSAGE:
+				case message:
 					exception.etcdMessage = parser.nextTextValue();
 					break;
-				case ERRORCODE:
+				case errorCode:
 					exception.errorCode = parser.nextIntValue(0);
 					break;
-				case INDEX:
+				case index:
 					exception.index = parser.nextIntValue(0);
 					break;
 				default:
@@ -96,7 +83,7 @@ public class EtcdKeysResponseParser {
     return exception;
   }
 static enum EtcdExceptionType{
-	CAUSE,MESSAGE,ERRORCODE,INDEX;
+	cause,message,errorCode,index;
 }
 
 
@@ -152,28 +139,28 @@ static enum EtcdExceptionType{
 
     while (token != JsonToken.END_OBJECT && token != null) {
       switch (EtcdKeysResponseType.valueOf(parser.getCurrentName())) {
-        case KEY:
+        case key:
           node.key = parser.nextTextValue();
           break;
-        case CREATEDINDEX:
+        case createdIndex:
           node.createdIndex = parser.nextLongValue(0);
           break;
-        case MODIFIEDINDEX:
+        case modifiedIndex:
           node.modifiedIndex = parser.nextLongValue(0);
           break;
-        case VALUE:
+        case value:
           node.value = parser.nextTextValue();
           break;
-        case DIR:
+        case dir:
           node.dir = parser.nextBooleanValue();
           break;
-        case EXPIRATION:
+        case expiration:
           node.expiration = convertDate(parser.nextTextValue());
           break;
-        case TTL:
+        case ttl:
           node.ttl = parser.nextLongValue(0);
           break;
-        case NODES:
+        case nodes:
           parser.nextToken();
           node.nodes = parseNodes(parser);
     	default:
@@ -185,7 +172,7 @@ static enum EtcdExceptionType{
     return node;
   }
 static enum EtcdKeysResponseType{
-	KEY,CREATEDINDEX,MODIFIEDINDEX,VALUE,DIR,EXPIRATION,TTL,NODES
+	key, value, dir, nodes, createdIndex, modifiedIndex, expiration, ttl
 }
   /**
    * Converts an ISO8601 date to Java date
