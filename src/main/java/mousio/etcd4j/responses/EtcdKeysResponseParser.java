@@ -163,6 +163,7 @@ static enum EtcdExceptionType{
         case nodes:
           parser.nextToken();
           node.nodes = parseNodes(parser);
+          break;
     	default:
     	  throw new JsonParseException("Unknown field " + parser.getCurrentName(), parser.getCurrentLocation());
       }
